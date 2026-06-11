@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Splice — Audio Joiner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --bg: #1a1714;
+    --bg-raised: #221e1a;
+    --tape: #f2e9d8;
+    --tape-dim: #c9bda7;
+    --amber: #e8964a;
+    --amber-bright: #ffb066;
+    --green: #6fae7c;
+    --red: #d9695a;
+    --line: #38322c;
+    --shadow: rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    background:
+      radial-gradient(circle at 15% 8%, #2a241d 0%, transparent 45%),
+      radial-gradient(circle at 90% 90%, #241f1a 0%, transparent 50%),
+      var(--bg);
+    color:var(--tape);
+    font-family:'Space Grotesk', sans-serif;
+    min-height:100vh;
+    padding:32px 16px 80px;
+    display:flex;
+    justify-content:center;
+  }
+  .wrap{ width:100%; max-width:760px; }
+
+  /* ---- Header / signature: a "tape leader" strip with sprocket holes ---- */
+  header{
+    position:relative;
+    padding:28px 24px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:repeating-linear-gradient(
+      90deg,
+      #211d18 0px, #211d18 18px,
+      #251f19 18px, #251f19 36px
+    );
+    overflow:hidden;
+    margin-bottom:28px;
+  }
+  header::before, header::after{
+    content:"";
+    position:absolute;
+    left:0; right:0; height:14px;
+    background-image: radial-gradient(circle, var(--bg) 4px, transparent 4.2px);
+    background-size: 28px 14px;
+    background-position: 8px center;
+    opacity:.6;
+  }
+  header::before{ top:0; }
+  header::after{ bottom:0; }
+  h1{
+    font-size: clamp(28px, 6vw, 42px);
+    font-weight:700;
+    letter-spacing:0.5px;
+    color:var(--tape);
+  }
+  h1 span{ color:var(--amber-bright); }
+  header p{
+    margin-top:8px;
+    color:var(--tape-dim);
+    font-size:14px;
+    font-family:'JetBrains Mono', monospace;
+    letter-spacing:0.3px;
+  }
+
+  /* ---- Drop zone ---- */
+  .dropzone{
+    border:1.5px dashed var(--line);
+    border-radius:8px;
+    padding:36px 20px;
+    text-align:center;
+    cursor:pointer;
+    transition: border-color .15s ease, background .15s ease;
+    background:var(--bg-raised);
+  }
+  .dropzone.drag{
+    border-color:var(--amber);
+    background:#2a2219;
+  }
+  .dropzone .big{
+    font-size:17px; font-weight:600;
+  }
+  .dropzone .small{
+    margin-top:6px;
+    font-size:13px;
+    color:var(--tape-dim);
+    font-family:'JetBrains Mono', monospace;
+  }
+  input[type="file"]{ display:none; }
+
+  /* ---- File list (the "splice order") ---- */
+  .reel{
+    margin-top:22px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .track{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    background:var(--bg-raised);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:10px 12px;
+  }
+  .track .index{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12px;
+    color:var(--bg);
+    background:var(--amber);
+    border-radius:4px;
+    width:26px; height:26px;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+    font-weight:600;
+  }
+  .track .meta{ flex:1; min-width:0; }
+  .track .name{
+    font-size:14px; font-weight:500;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .track .size{
+    font-size:11.5px; color:var(--tape-dim);
+    font-family:'JetBrains Mono', monospace;
+    margin-top:2px;
+  }
+  .track .ext-warn{ color:var(--amber-bright); }
+  .track .ctrls{ display:flex; gap:4px; flex-shrink:0; }
+  .icon-btn{
+    background:none; border:1px solid var(--line);
+    color:var(--tape-dim);
+    width:28px; height:28px; border-radius:5px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; font-size:14px; line-height:1;
+    transition: all .12s ease;
+  }
+  .icon-btn:hover:not(:disabled){ color:var(--tape); border-color:var(--tape-dim); }
+  .icon-btn:disabled{ opacity:.25; cursor:default; }
+  .icon-btn.danger:hover:not(:disabled){ color:var(--red); border-color:var(--red); }
+
+  .empty-msg{
+    margin-top:18px;
+    font-size:13px;
+    font-family:'JetBrains Mono', monospace;
+    color:var(--tape-dim);
+    text-align:center;
+    display:none;
+  }
+  .empty-msg.show{ display:block; }
+
+  /* ---- Settings row ---- */
+  .settings{
+    margin-top:22px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:12px;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .field{
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .field label{
+    font-size:11.5px; text-transform:uppercase; letter-spacing:1px;
+    color:var(--tape-dim); font-family:'JetBrains Mono', monospace;
+  }
+  select, .total{
+    background:var(--bg-raised);
+    border:1px solid var(--line);
+    color:var(--tape);
+    padding:9px 12px;
+    border-radius:6px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+  }
+  .total{ display:flex; align-items:center; }
+  .total b{ color:var(--amber-bright); margin-left:6px; }
+
+  /* ---- Action ---- */
+  .action{ margin-top:24px; }
+  .merge-btn{
+    width:100%;
+    padding:16px;
+    border:none;
+    border-radius:8px;
+    background: linear-gradient(180deg, var(--amber-bright), var(--amber));
+    color:#241a0d;
+    font-weight:700;
+    font-size:16px;
+    letter-spacing:0.4px;
+    cursor:pointer;
+    transition: filter .12s ease, transform .05s ease;
+  }
+  .merge-btn:hover:not(:disabled){ filter:brightness(1.08); }
+  .merge-btn:active:not(:disabled){ transform: translateY(1px); }
+  .merge-btn:disabled{
+    background:var(--line); color:var(--tape-dim); cursor:default;
+  }
+
+  /* ---- Progress ---- */
+  .progress-wrap{
+    margin-top:18px;
+    display:none;
+  }
+  .progress-wrap.show{ display:block; }
+  .progress-track{
+    height:10px;
+    border-radius:6px;
+    background:var(--bg-raised);
+    border:1px solid var(--line);
+    overflow:hidden;
+  }
+  .progress-fill{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg, var(--amber), var(--amber-bright));
+    transition:width .25s ease;
+  }
+  .progress-label{
+    margin-top:8px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:12.5px;
+    color:var(--tape-dim);
+    display:flex; justify-content:space-between;
+  }
+  .progress-label b{ color:var(--tape); }
+
+  /* ---- Status / error / result ---- */
+  .panel{
+    margin-top:18px;
+    padding:14px 16px;
+    border-radius:8px;
+    font-size:13.5px;
+    font-family:'JetBrains Mono', monospace;
+    line-height:1.55;
+    display:none;
+    border:1px solid var(--line);
+  }
+  .panel.show{ display:block; }
+  .panel.error{
+    background:#2c1f1c; border-color:#5a3a32; color:#f3c9bf;
+  }
+  .panel.error .title{ color:var(--red); font-weight:700; margin-bottom:4px; }
+  .panel.success{
+    background:#1f2a20; border-color:#3a5a40; color:#cfe7d2;
+  }
+  .panel.success .title{ color:var(--green); font-weight:700; margin-bottom:4px; }
+  .panel.info{
+    background:var(--bg-raised); color:var(--tape-dim);
+  }
+
+  .download-btn{
+    margin-top:12px;
+    display:inline-block;
+    padding:10px 18px;
+    background:var(--green);
+    color:#16241a;
+    text-decoration:none;
+    border-radius:6px;
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    font-size:14px;
+  }
+
+  footer{
+    margin-top:30px;
+    text-align:center;
+    font-size:11.5px;
+    color:var(--line);
+    font-family:'JetBrains Mono', monospace;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .progress-fill{ transition:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Splice<span>.</span></h1>
+    <p>// drop tracks → set order → join in one pass, no re-encode</p>
+  </header>
+
+  <div class="dropzone" id="dropzone">
+    <div class="big">Drop audio files here, or tap to browse</div>
+    <div class="small">MP3 · WAV · M4A/AAC · FLAC · OGG — same format joins fastest</div>
+    <input type="file" id="fileInput" multiple accept="audio/*">
+  </div>
+
+  <div class="reel" id="reel"></div>
+  <div class="empty-msg" id="emptyMsg">No tracks loaded yet — add at least 2 to merge.</div>
+
+  <div class="settings">
+    <div class="field">
+      <label for="outFormat">Output format</label>
+      <select id="outFormat"></select>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <div class="total" id="totalSize">Total: 0 MB</div>
+    </div>
+  </div>
+
+  <div class="action">
+    <button class="merge-btn" id="mergeBtn" disabled>Add at least 2 tracks</button>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-label">
+      <span id="progressStage">Preparing…</span>
+      <b id="progressPct">0%</b>
+    </div>
+  </div>
+
+  <div class="panel info" id="panelInfo"></div>
+  <div class="panel error" id="panelError">
+    <div class="title">⚠ Merge failed</div>
+    <div id="errorMsg"></div>
+  </div>
+  <div class="panel success" id="panelSuccess">
+    <div class="title">✓ Merge complete</div>
+    <div id="successMsg"></div>
+    <a class="download-btn" id="downloadLink" download>Download merged file</a>
+  </div>
+
+  <footer>Processing happens entirely in your browser — files are never uploaded.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+<script>
+const { FFmpeg } = FFmpegWASM;
+const { fetchFile, toBlobURL } = FFmpegUtil;
+
+let files = []; // {file, ext}
+let ffmpeg = null;
+let ffmpegLoaded = false;
+
+const dropzone   = document.getElementById('dropzone');
+const fileInput  = document.getElementById('fileInput');
+const reel       = document.getElementById('reel');
+const emptyMsg   = document.getElementById('emptyMsg');
+const mergeBtn   = document.getElementById('mergeBtn');
+const outFormat  = document.getElementById('outFormat');
+const totalSizeEl= document.getElementById('totalSize');
+
+const progressWrap = document.getElementById('progressWrap');
+const progressFill = document.getElementById('progressFill');
+const progressStage= document.getElementById('progressStage');
+const progressPct  = document.getElementById('progressPct');
+
+const panelInfo    = document.getElementById('panelInfo');
+const panelError   = document.getElementById('panelError');
+const panelSuccess = document.getElementById('panelSuccess');
+const errorMsg     = document.getElementById('errorMsg');
+const successMsg   = document.getElementById('successMsg');
+const downloadLink = document.getElementById('downloadLink');
+
+const FORMAT_OPTIONS = [
+  { value:'mp3',  label:'MP3'},
+  { value:'wav',  label:'WAV'},
+  { value:'m4a',  label:'M4A / AAC'},
+  { value:'flac', label:'FLAC'},
+  { value:'ogg',  label:'OGG'},
+];
+FORMAT_OPTIONS.forEach(f=>{
+  const o = document.createElement('option');
+  o.value = f.value; o.textContent = f.label;
+  outFormat.appendChild(o);
+});
+
+function extOf(name){
+  const m = name.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : '';
+}
+function fmtSize(bytes){
+  if(bytes < 1024*1024) return (bytes/1024).toFixed(0) + ' KB';
+  if(bytes < 1024*1024*1024) return (bytes/(1024*1024)).toFixed(1) + ' MB';
+  return (bytes/(1024*1024*1024)).toFixed(2) + ' GB';
+}
+
+function hidePanels(){
+  panelInfo.classList.remove('show');
+  panelError.classList.remove('show');
+  panelSuccess.classList.remove('show');
+}
+
+/* ---------------- File handling ---------------- */
+
+dropzone.addEventListener('click', ()=> fileInput.click());
+dropzone.addEventListener('dragover', e=>{ e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', ()=> dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e=>{
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', e=>{
+  addFiles(e.target.files);
+  fileInput.value = '';
+});
+
+function addFiles(fileList){
+  hidePanels();
+  for(const f of fileList){
+    if(!f.type.startsWith('audio') && !/\.(mp3|wav|m4a|aac|flac|ogg|wma|opus)$/i.test(f.name)) continue;
+    files.push({ file:f, ext: extOf(f.name) });
+  }
+  // default output format = most common input extension
+  if(files.length){
+    const counts = {};
+    files.forEach(f=> counts[f.ext] = (counts[f.ext]||0)+1);
+    const top = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0];
+    const known = FORMAT_OPTIONS.find(f=> f.value === top || (top==='aac' && f.value==='m4a'));
+    if(known) outFormat.value = known.value;
+  }
+  render();
+}
+
+function render(){
+  reel.innerHTML = '';
+  let total = 0;
+  const exts = new Set();
+
+  files.forEach((item, i)=>{
+    total += item.file.size;
+    exts.add(item.ext);
+
+    const row = document.createElement('div');
+    row.className = 'track';
+
+    const idx = document.createElement('div');
+    idx.className = 'index';
+    idx.textContent = i+1;
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = item.file.name;
+    const size = document.createElement('div');
+    size.className = 'size';
+    size.textContent = fmtSize(item.file.size) + '  ·  .' + item.ext;
+    meta.appendChild(name); meta.appendChild(size);
+
+    const ctrls = document.createElement('div');
+    ctrls.className = 'ctrls';
+
+    const up = document.createElement('button');
+    up.className = 'icon-btn'; up.textContent = '↑';
+    up.disabled = (i === 0);
+    up.title = 'Move up';
+    up.onclick = ()=>{ [files[i-1],files[i]]=[files[i],files[i-1]]; render(); };
+
+    const down = document.createElement('button');
+    down.className = 'icon-btn'; down.textContent = '↓';
+    down.disabled = (i === files.length-1);
+    down.title = 'Move down';
+    down.onclick = ()=>{ [files[i+1],files[i]]=[files[i],files[i+1]]; render(); };
+
+    const del = document.createElement('button');
+    del.className = 'icon-btn danger'; del.textContent = '✕';
+    del.title = 'Remove';
+    del.onclick = ()=>{ files.splice(i,1); render(); };
+
+    ctrls.appendChild(up); ctrls.appendChild(down); ctrls.appendChild(del);
+
+    row.appendChild(idx); row.appendChild(meta); row.appendChild(ctrls);
+    reel.appendChild(row);
+  });
+
+  emptyMsg.classList.toggle('show', files.length === 0);
+  totalSizeEl.innerHTML = 'Total: <b>' + fmtSize(total) + '</b>';
+
+  if(files.length < 2){
+    mergeBtn.disabled = true;
+    mergeBtn.textContent = 'Add at least 2 tracks';
+  } else {
+    mergeBtn.disabled = false;
+    mergeBtn.textContent = 'Merge ' + files.length + ' tracks';
+  }
+
+  // hint about mixed formats
+  if(files.length >= 2 && exts.size > 1){
+    panelInfo.classList.add('show');
+    panelInfo.innerHTML = 'ℹ Mixed input formats detected (' + [...exts].join(', ') +
+      '). Files will be converted to a common format before joining — this is slower than a same-format merge but keeps everything in sync.';
+  } else if (panelInfo.innerHTML.startsWith('ℹ Mixed')) {
+    hidePanels();
+  }
+}
+
+/* ---------------- ffmpeg setup ---------------- */
+
+async function ensureFFmpeg(setStage){
+  if(ffmpegLoaded) return ffmpeg;
+  ffmpeg = new FFmpeg();
+  ffmpeg.on('progress', ({ progress })=>{
+    const pct = Math.min(99, Math.max(1, Math.round(progress*100)));
+    progressFill.style.width = pct + '%';
+    progressPct.textContent = pct + '%';
+  });
+  setStage('Loading audio engine (one-time download)…');
+  const base = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+  await ffmpeg.load({
+    coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, 'application/wasm'),
+    classWorkerURL: await toBlobURL('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/worker.js', 'text/javascript'),
+  });
+  ffmpegLoaded = true;
+  return ffmpeg;
+}
+
+/* ---------------- Merge ---------------- */
+
+mergeBtn.addEventListener('click', runMerge);
+
+async function runMerge(){
+  hidePanels();
+  mergeBtn.disabled = true;
+  progressWrap.classList.add('show');
+  progressFill.style.width = '0%';
+  progressPct.textContent = '0%';
+  progressStage.textContent = 'Starting…';
+
+  const targetExt = outFormat.value;
+  const sameFormat = files.every(f => f.ext === targetExt || (f.ext==='aac' && targetExt==='m4a'));
+
+  try{
+    const ff = await ensureFFmpeg(s=> progressStage.textContent = s);
+
+    // write all input files
+    progressStage.textContent = 'Loading files into memory…';
+    const inputNames = [];
+    for(let i=0;i<files.length;i++){
+      const item = files[i];
+      const inName = `in${i}.${item.ext || 'dat'}`;
+      const data = await fetchFile(item.file);
+      await ff.writeFile(inName, data);
+      inputNames.push(inName);
+      progressFill.style.width = Math.round(((i+1)/files.length)*15) + '%';
+    }
+
+    const outName = `merged.${targetExt}`;
+    let cmd;
+
+    if(sameFormat){
+      // FAST PATH: stream copy via concat demuxer — no re-encoding
+      progressStage.textContent = 'Joining tracks (stream copy — fast)…';
+      let listContent = '';
+      inputNames.forEach(n => listContent += `file '${n}'\n`);
+      await ff.writeFile('list.txt', new TextEncoder().encode(listContent));
+      cmd = ['-f','concat','-safe','0','-i','list.txt','-c','copy', outName];
+    } else {
+      // SLOW PATH: re-encode each input to a common intermediate, then concat
+      progressStage.textContent = 'Converting tracks to a common format…';
+      const codecArgs = (targetExt === 'wav')
+        ? ['-c:a','pcm_s16le']
+        : (targetExt === 'flac')
+          ? ['-c:a','flac']
+          : (targetExt === 'mp3')
+            ? ['-c:a','libmp3lame','-b:a','192k']
+            : (targetExt === 'ogg')
+              ? ['-c:a','libvorbis','-q:a','5']
+              : ['-c:a','aac','-b:a','192k']; // m4a/aac
+
+      const interNames = [];
+      for(let i=0;i<inputNames.length;i++){
+        const interName = `conv${i}.${targetExt}`;
+        await ff.exec(['-i', inputNames[i], '-vn', ...codecArgs, interName]);
+        interNames.push(interName);
+        progressFill.style.width = (15 + Math.round(((i+1)/inputNames.length)*55)) + '%';
+      }
+      progressStage.textContent = 'Joining converted tracks…';
+      let listContent = '';
+      interNames.forEach(n => listContent += `file '${n}'\n`);
+      await ff.writeFile('list.txt', new TextEncoder().encode(listContent));
+      cmd = ['-f','concat','-safe','0','-i','list.txt','-c','copy', outName];
+    }
+
+    const ok = await ff.exec(cmd);
+    if(ok !== 0){
+      throw new Error('ffmpeg exited with code ' + ok + '. The files may use incompatible codecs for a direct join.');
+    }
+
+    progressStage.textContent = 'Reading merged file…';
+    const data = await ff.readFile(outName);
+    if(!data || data.length === 0){
+      throw new Error('Output file is empty — the merge produced no audio data.');
+    }
+
+    progressFill.style.width = '100%';
+    progressPct.textContent = '100%';
+    progressStage.textContent = 'Done';
+
+    const mime = {
+      mp3:'audio/mpeg', wav:'audio/wav', m4a:'audio/mp4',
+      flac:'audio/flac', ogg:'audio/ogg'
+    }[targetExt] || 'application/octet-stream';
+
+    const blob = new Blob([data.buffer], { type: mime });
+    const url = URL.createObjectURL(blob);
+    downloadLink.href = url;
+    downloadLink.download = `merged.${targetExt}`;
+
+    successMsg.textContent = `Joined ${files.length} tracks into one ${targetExt.toUpperCase()} file (${fmtSize(blob.size)}).` +
+      (sameFormat ? ' Stream-copy mode was used — no quality loss, no re-encoding.' : ' Tracks were re-encoded to match formats before joining.');
+    panelSuccess.classList.add('show');
+
+    // cleanup virtual fs
+    for(const n of inputNames){ try{ await ff.deleteFile(n); }catch(e){} }
+    try{ await ff.deleteFile('list.txt'); }catch(e){}
+    try{ await ff.deleteFile(outName); }catch(e){}
+
+  } catch(err){
+    console.error(err);
+    let msg = err && err.message ? err.message : String(err);
+
+    // Friendlier explanations for common failure modes
+    if(/memory|allocate|out of memory|RangeError/i.test(msg)){
+      msg = 'The browser ran out of memory while processing these files. Very large batches (multiple GB) ' +
+            'can exceed the memory available to the in-browser engine. Try merging in smaller groups (e.g. 2–3 files at a time), ' +
+            'or close other tabs to free up memory and try again.';
+    } else if(/incompatible|codec|stream copy/i.test(msg)){
+      msg += ' Try selecting an output format that matches your source files, or let the app convert to a common format automatically.';
+    }
+
+    errorMsg.textContent = msg;
+    panelError.classList.add('show');
+    progressStage.textContent = 'Failed';
+  } finally {
+    mergeBtn.disabled = files.length < 2;
+  }
+}
+
+render();
+</script>
+</body>
+</html>
